@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fetch Data and Export to Excel</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.1/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f7fc;
+        text-align: center;
+        padding: 30px;
+      }
+
+      h1 {
+        color: #2f4f7f;
+      }
+
+      #downloadBtn {
+        background-color: #4caf50;
+        color: white;
+        font-size: 16px;
+        padding: 10px 20px;
+        border: none;
+        cursor: pointer;
+        border-radius: 5px;
+        transition: background-color 0.3s;
+      }
+
+      #downloadBtn:hover {
+        background-color: #45a049;
+      }
+
+      .container {
+        margin: 20px 0;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>Fetch Data and Export to Excel</h1>
+      <button id="downloadBtn">Download Excel</button>
+    </div>
+
+    <script>
+      document
+        .getElementById("downloadBtn")
+        .addEventListener("click", fetchDataAndExportExcel);
+      let ap = [];
+
+      // Fetch apartment data
+      async function fetchApartments() {
+        const { data } = await axios.get("https://api.careasy.in/v1/apartment");
+        ap = data.result.data;
+      }
+
+      fetchApartments();
+
+      // Get apartment name by ID
+      const getApName = (apId) => {
+        const apName = ap.find((a) => a._id === apId);
+        return apName?.apartment_name || "N/A";
+      };
+
+      // Fetch data and generate Excel file
+      async function fetchDataAndExportExcel() {
+        try {
+          // Fetch data from API
+          const { data } = await axios.get(
+            "https://api.careasy.in/v1/orders/subscription/vehicle-wise?apartment="
+          );
+
+          // Check if data is available
+          if (data?.result?.orders) {
+            const vehicles = data?.result?.orders;
+
+            // Prepare data for the Excel sheet
+            const excelData = vehicles.map((vehicle, index) => {
+              const firstOrder = vehicle.orders[0] || {}; // Get first order data
+              return {
+                "Sr No": index + 1,
+                "Vehicle No": vehicle?.vehicleNumber,
+                "Customer Name": firstOrder?.userDetails?.name || "N/A",
+                Mobile: firstOrder?.userDetails?.mobile || "N/A",
+                Email: firstOrder?.userDetails?.email || "N/A",
+                Apartment: getApName(firstOrder?.address?.apartment) || "N/A",
+                "Last Service Name":
+                  (firstOrder?.orderItem &&
+                    firstOrder?.orderItem[0]?.serviceTitle) ||
+                  "N/A",
+                "Plan Month":
+                  (firstOrder?.orderItem &&
+                    firstOrder?.orderItem[0]?.planDuration) ||
+                  "N/A",
+                "Last Service Start Date": firstOrder?.date || "N/A",
+                "Last Service Expiry Date": firstOrder?.expiryDate || "N/A",
+                "Total Amount with GST":
+                  Number(
+                    firstOrder?.paymentDetails?.totalAmountWithGst
+                  )?.toFixed(2) || "N/A",
+                "Last Order ID": firstOrder?.orderId,
+                "Last Order Payment Status": firstOrder?.paymentStatus,
+              };
+            });
+
+            // Generate Excel file
+            const ws = XLSX.utils.json_to_sheet(excelData);
+
+            // Style the Excel sheet
+            const headerStyle = {
+              font: { bold: true, color: { rgb: "FFFFFF" } },
+              fill: { fgColor: { rgb: "4CAF50" } },
+              alignment: { horizontal: "center", vertical: "center" },
+            };
+
+            // Apply header styling
+            const range = XLSX.utils.decode_range(ws["!ref"]);
+            for (let col = range.s.c; col <= range.e.c; col++) {
+              const cell = ws[XLSX.utils.encode_cell({ r: 0, c: col })];
+              if (cell) {
+                cell.s = headerStyle;
+              }
+            }
+
+            // Apply borders to all cells
+            const borderStyle = {
+              top: { style: "thin", color: { rgb: "000000" } },
+              left: { style: "thin", color: { rgb: "000000" } },
+              bottom: { style: "thin", color: { rgb: "000000" } },
+              right: { style: "thin", color: { rgb: "000000" } },
+            };
+
+            for (let row = range.s.r; row <= range.e.r; row++) {
+              for (let col = range.s.c; col <= range.e.c; col++) {
+                const cell = ws[XLSX.utils.encode_cell({ r: row, c: col })];
+                if (cell) {
+                  cell.s = { border: borderStyle };
+                }
+              }
+            }
+
+            // Create a new workbook and append the sheet
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Orders");
+
+            // Export Excel file
+            XLSX.writeFile(wb, "Vehicle_Orders.xlsx");
+          }
+        } catch (error) {
+          console.error("Error fetching data or generating Excel file", error);
+        }
+      }
+    </script>
+  </body>
+</html>
