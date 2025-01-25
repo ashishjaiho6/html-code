@@ -6,6 +6,8 @@
     <title>Fetch Data and Export to Excel</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.1/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.3/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.34/moment-timezone-with-data.min.js"></script>
     <style>
       body {
         font-family: Arial, sans-serif;
@@ -49,44 +51,65 @@
       document
         .getElementById("downloadBtn")
         .addEventListener("click", fetchDataAndExportExcel);
-      let ap = [];
+      let apartments = [];
 
       // Fetch apartment data
       async function fetchApartments() {
-        const { data } = await axios.get("https://api.careasy.in/v1/apartment");
-        ap = data.result.data;
+        try {
+          const response = await axios.get(
+            "https://api.careasy.in/v1/apartment"
+          );
+          apartments = response.data.result.data || [];
+        } catch (error) {
+          console.error("Error fetching apartments", error);
+        }
       }
 
       fetchApartments();
 
       // Get apartment name by ID
-      const getApName = (apId) => {
-        const apName = ap.find((a) => a._id === apId);
-        return apName?.apartment_name || "N/A";
+      const getApartmentName = (apartmentId) => {
+        const apartment = apartments.find((a) => a._id === apartmentId);
+        return apartment?.apartment_name || "N/A";
       };
+
+      // Map order details to row data
+      const mapOrderData = (order, prefix) => ({
+        [`${prefix} Service Start Date`]: order?.date || "",
+        [`${prefix} Service Expiry Date`]: order?.expiryDate || "",
+        [`${prefix} Total Amount with GST`]: order?.paymentDetails
+          ?.totalAmountWithGst
+          ? Number(order?.paymentDetails?.totalAmountWithGst)?.toFixed(2) || ""
+          : "",
+        [`${prefix} Order ID`]: order?.orderId || "",
+        [`${prefix} Order Payment Status`]: order?.paymentStatus || "",
+      });
 
       // Fetch data and generate Excel file
       async function fetchDataAndExportExcel() {
         try {
-          // Fetch data from API
+          // Fetch order data from the API
           const { data } = await axios.get(
             "https://api.careasy.in/v1/orders/subscription/vehicle-wise?apartment="
           );
 
-          // Check if data is available
           if (data?.result?.orders) {
-            const vehicles = data?.result?.orders;
+            const vehicles = data.result.orders;
 
             // Prepare data for the Excel sheet
             const excelData = vehicles.map((vehicle, index) => {
-              const firstOrder = vehicle.orders[0] || {}; // Get first order data
+              const orders = vehicle.orders || [];
+              const firstOrder = orders[0] || {};
+              const secondOrder = orders[1] || {};
+              const thirdOrder = orders[2] || {};
+
               return {
                 "Sr No": index + 1,
-                "Vehicle No": vehicle?.vehicleNumber,
-                "Customer Name": firstOrder?.userDetails?.name || "N/A",
-                Mobile: firstOrder?.userDetails?.mobile || "N/A",
-                Email: firstOrder?.userDetails?.email || "N/A",
-                Apartment: getApName(firstOrder?.address?.apartment) || "N/A",
+                "Vehicle No": vehicle?.vehicleNumber || "N/A",
+                "Customer Name": firstOrder?.userDetails?.name || "...",
+                Mobile: firstOrder?.userDetails?.mobile || "...",
+                Email: firstOrder?.userDetails?.email || "...",
+                Apartment: getApartmentName(firstOrder?.address?.apartment),
                 "Last Service Name":
                   (firstOrder?.orderItem &&
                     firstOrder?.orderItem[0]?.serviceTitle) ||
@@ -95,21 +118,16 @@
                   (firstOrder?.orderItem &&
                     firstOrder?.orderItem[0]?.planDuration) ||
                   "N/A",
-                "Last Service Start Date": firstOrder?.date || "N/A",
-                "Last Service Expiry Date": firstOrder?.expiryDate || "N/A",
-                "Total Amount with GST":
-                  Number(
-                    firstOrder?.paymentDetails?.totalAmountWithGst
-                  )?.toFixed(2) || "N/A",
-                "Last Order ID": firstOrder?.orderId,
-                "Last Order Payment Status": firstOrder?.paymentStatus,
+                ...mapOrderData(firstOrder, "Last"),
+                ...mapOrderData(secondOrder, "Second Last"),
+                ...mapOrderData(thirdOrder, "Third Last"),
               };
             });
 
             // Generate Excel file
             const ws = XLSX.utils.json_to_sheet(excelData);
 
-            // Style the Excel sheet
+            // Style the Excel sheet (Header)
             const headerStyle = {
               font: { bold: true, color: { rgb: "FFFFFF" } },
               fill: { fgColor: { rgb: "4CAF50" } },
@@ -147,7 +165,7 @@
             XLSX.utils.book_append_sheet(wb, ws, "Orders");
 
             // Export Excel file
-            XLSX.writeFile(wb, "Vehicle_Orders.xlsx");
+            XLSX.writeFile(wb, `DCW_Orders_${moment().format("ll")}.xlsx`);
           }
         } catch (error) {
           console.error("Error fetching data or generating Excel file", error);
